@@ -18,7 +18,7 @@
 
 # N.B. !!!!!!!!!!!  See 17 July 2012 comments !!!!!!!!!!!!!!!!!!
 
-# On a UNIX-like system, the above enables latexmk to run independently
+# On a UNIX-like system, the above enables panmk to run independently
 #   of the location of the perl executable.  This line relies on the 
 #   existence of the program /usr/bin/env
 # If there is a problem for any reason, you can replace the first line of 
@@ -124,10 +124,10 @@ use warnings;
 #   Test for already running previewer gets wrong answer if another
 #     process has the viewed file in its command line
 
-## Copyright John Collins 1998-2018
-##           (username jcc8 at node psu.edu)
-##      (and thanks to David Coppit (username david at node coppit.org) 
-##           for suggestions) 
+## Copyright Roger Fu
+##         (modifications from latexmk -> panmk)
+## Copyright John Collins
+##         (original latexmk copyright)
 ## Copyright Evan McLean
 ##         (modifications up to version 2)
 ## Copyright 1992 by David J. Musliner and The University of Michigan.
@@ -147,66 +147,6 @@ use warnings;
 ##    along with this program; if not, write to the Free Software
 ##    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307
 ##
-##
-##
-##   NEW FEATURES, since v. 2.0:
-##     1.  Correct algorithm for deciding how many times to run latex:
-##         based on whether source file(s) change between runs
-##     2.  Continuous preview works, and can be of ps file or dvi file
-##     3.  pdf creation by pdflatex possible
-##     4.  Defaults for commands are OS dependent.
-##     5.  Parsing of log file instead of source file is used to
-##         obtain dependencies, by default.
-##
-##   Modification log from 9 Dec 2011 onwards in detail
-##
-## 12 Jan 2012 STILL NEED TO DOCUMENT some items below
-##
-## 17 Mar 2019 John Collins  Further test for problems when linking rules
-## 17 Mar 2019 John Collins  V. 4.63b.
-## 17 Mar 2019 John Collins  Fix problem revealed by bibtopic package
-## 15 Mar 2019 John Collins  Corrections
-## 14 Mar 2019 John Collins  Version to 4.63a
-## 12-14 Mar 2019 John Collins  Jobname has placeholder
-##  8-11 Mar 2019 John Collins  Correct aux-dir bugs 
-##  8 Mar 2019 John Collins  Version to 4.63
-##  1 Jan 2019 John Collins  Correct bug in output switching code
-## 31 Dec 2018 John Collins  Correct bug that with $cleanup_includes_generated
-##                              -c mode deletes final output files (e.g., .dvi, .pdf).
-## 13 Dec 2018 John Collins  Fixes, cleanup
-## 12 Dec 2018 John Collins  Fix rdb_read
-## 11 Dec 2018 John Collins  For output-switch: Reorganize initialization
-##                           Remove possibility of more than one primary.
-##  1 Dec 2018 John Collins  Clean up some code.
-## 30 Nov 2018 John Collins  Allow any characters in directory part of tex
-##                             filename when cd mode on.  (Still standard
-##                             set of disallowed characters applies basename.)
-## 21 Nov 2018 John Collins  Infrastructure finished, I think, for active flag
-##                           Start on output switch
-## 16 Nov 2018 John Collins  Remove in non-diagnostics mode a warning about
-##                             rule not in use in this session that is given
-##                             when reading an fdb_latexmk file.
-##  2 Nov 2018 John Collins  Start implementing active flag for rules.
-##  1 Nov 2018 John Collins  Fix finding of missing files that are relative to aux_dir
-## 29-31 Oct 2018 John Collins  Some cleanup.
-## 27,28 Oct 2018 John Collins  Fix bug that in -pvc mode, after an error in
-##                             certain rules, new rounds of compilation 
-##                             are triggered because of changes in generated
-##                             files, instead of only by later user-generated
-##                             changes.
-##                           Improve linking of rules.
-## 25 Oct 2018 John Collins  V. 4.62
-##                           Clean up can remove (empty) directories
-## 25 Oct 2018 John Collins  Fix definition of clean up substitution for %R
-##                             so that something with intermediate %R works,
-##                             as in 'pythontex-files-%R/*'.
-##
-## 1998-2018, John Collins.  Many improvements and fixes.
-##   See CHANGE-log.txt for full list, and CHANGES for summary
-##
-## Modified by Evan McLean (no longer available for support)
-## Original script (RCS version 2.3) called "go" written by David J. Musliner
-##
 ##-----------------------------------------------------------------------
 
 
@@ -219,10 +159,10 @@ use warnings;
 ##             20 = probable bug
 ##             or retcode from called program.
 
-$my_name = 'latexmk';
-$My_name = 'Latexmk';
-$version_num = '4.63b';
-$version_details = "$My_name, John Collins, 17 March 2019";
+$my_name = 'panmk';
+$My_name = 'Panmk';
+$version_num = '1.00b';
+$version_details = "$My_name, Roger Fu, 05 April 2019";
 
 use Config;
 use File::Basename;
@@ -267,6 +207,7 @@ use Digest::MD5;
 
 # The following variables are assigned once and then used in symbolic 
 #     references, so we need to avoid warnings 'name used only once':
+# TODO: change to pandoc shit
 use vars qw( $dvi_update_command $ps_update_command $pdf_update_command );
 
 # Translation of signal names to numbers and vv:
@@ -302,18 +243,12 @@ $log_wrap = 79;
 ##     push @file_not_found, '^No data file found `([^\\\']*)\\\'';
 ## will give match to line starting "No data file found `filename'"
 @file_not_found = (
-    '^No file\\s*(.*)\\.$',
-    '^\\! LaTeX Error: File `([^\\\']*)\\\' not found\\.',
-    '.*?:\\d*: LaTeX Error: File `([^\\\']*)\\\' not found\\.',
-    '^LaTeX Warning: File `([^\\\']*)\\\' not found',
-    '^Package .* [fF]ile `([^\\\']*)\\\' not found',
-    '^Package .* No file `([^\\\']*)\\\'',
-    'Error: pdflatex \(file ([^\)]*)\): cannot find image file',
-    ': File (.*) not found:\s*$',
-    '! Unable to load picture or PDF file \\\'([^\\\']+)\\\'.',
+    '^Could not find data file (.*)$'
+    '^pandoc: (.*): openBinaryFile: does not exist (No such file or directory)$',
 );
 
 # Characters that we won't allow in the name of a TeX file.
+# TODO: Change this to pandoc
 # Notes: Some are disallowed by TeX itself.
 #        '\' results in TeX macro expansion
 #        '$' results in possible variable substitution by kpsewhich called from tex.
@@ -551,34 +486,6 @@ foreach (
 @extra_pdflatex_options = ();
 @extra_lualatex_options = ();
 @extra_xelatex_options = ();
-
-
-## Command to invoke biber & bibtex
-$biber  = 'biber %O %B';
-$bibtex  = 'bibtex %O %B';
-# Switch(es) to make biber & bibtex silent:
-$bibtex_fudge = 1; # Use hack to get bibtex working in old versions that
-                   #    don't handle output-directory.
-$biber_silent_switch  = '--onlylog';
-$bibtex_silent_switch  = '-terse';
-$bibtex_use = 1;   # Whether to actually run bibtex to update bbl files.
-                   # This variable is also used in deciding whether to
-                   #   delete bbl files in clean up operations.
-                   # 0:  Never run bibtex.
-                   #     Do NOT delete bbl files on clean up.
-                   # 1:  Run bibtex only if the bibfiles exists 
-                   #     according to kpsewhich, and the bbl files
-                   #     appear to be out-of-date.
-                   #     Do NOT delete bbl files on clean up.
-                   # 1.5:  Run bibtex only if the bibfiles exists 
-                   #     according to kpsewhich, and the bbl files
-                   #     appear to be out-of-date.
-                   #     Only delete bbl files on clean up if bibfiles exist.
-                   # 2:  Run bibtex when the bbl files are out-of-date
-                   #     Delete bbl files on clean up.
-                   #
-                   # In any event bibtex is only run if the log file
-                   #   indicates that the document uses bbl files.
 
 ## Command to invoke makeindex
 $makeindex  = 'makeindex %O -o %D %S';
@@ -2104,8 +2011,6 @@ if ( $silent ) {
     add_option( "$pdflatex_silent_switch", \$pdflatex );
     add_option( "$lualatex_silent_switch", \$lualatex );
     add_option( "$xelatex_silent_switch", \$xelatex );
-    add_option( "$biber_silent_switch", \$biber );
-    add_option( "$bibtex_silent_switch", \$bibtex );
     add_option( "$makeindex_silent_switch", \$makeindex );
     add_option( "$dvipdf_silent_switch", \$dvipdf );
     add_option( "$dvips_silent_switch", \$dvips );
@@ -2412,17 +2317,6 @@ foreach $filename ( @file_list )
                     $base = $path.$base;
                     if ( $rule =~ /^makeindex/ ) {
                         push @index_bibtex_generated, $$Psource, $$Pdest, "$base.ilg";
-                    }
-                    elsif ( $rule =~ /^(bibtex|biber)/ ) {
-                        push @index_bibtex_generated, $$Pdest, "$base.blg";
-                        push @aux_files, $$Psource;
-                        if ( $bibtex_use == 1.5) {
-                            foreach ( keys %$PHsource ) {
-                                if ( ( /\.bib$/ ) && (! -e $_) ) {
-                                    push @missing_bib_files, $_;
-                                }
-                            }
-                        }
                     }
                     elsif ( exists $other_generated{$$Psource} ) {
 #                       print "=========== CHECKING: source file of rule '$rule', '$$Psource'\n",
@@ -2810,21 +2704,6 @@ sub set_dirs_etc {
         }
         while ( s[^\.\/][] ) {}
     }
-    if ($aux_dir) {
-        # Ensure $aux_dir is in BIBINPUTS and TEXINPUTS search paths.
-        # TEXINPUTS is used by dvips for files generated by mpost.
-        # For BIBINPUTS, 
-        # at least one widely package (revtex4-1) generates a bib file
-        # (which is used in revtex4-1 for putting footnotes in the reference
-        # list), and bibtex must be run to use it.  But latexmk needs to
-        # determine the existence of the bib file by use of kpsewhich, otherwise
-        # there is an error.  So cope with this situation (and any analogous
-        # cases by adding the aux_dir to the relevant path search environment
-        # variables.  BIBINPUTS seems to be the only one currently affected.
-        foreach ( 'BIBINPUTS', 'TEXINPUTS' ) {
-            ensure_path( $_, $aux_dir );
-        }
-    }
 }
 
 #############################################################
@@ -2846,10 +2725,6 @@ sub fix_cmds {
         if ( $_ && ! /^(nostart|NONE|internal) / ) {
             $_ = "start $_";
         }
-    }
-    foreach ($biber, $bibtex) {
-        # Base only
-        if ( $_ && ! /%/ ) { $_ .= " %O %B"; }
     }
     foreach ($dvipdf, $ps2pdf) {
         # Source and dest without flag for destination
@@ -3981,8 +3856,6 @@ sub print_commands {
        "   To run pdflatex, I use \"$pdflatex\"\n",
        "   To run lualatex, I use \"$lualatex\"\n",
        "   To run xelatex, I use \"$xelatex\"\n",
-       "   To run biber, I use \"$biber\"\n",
-       "   To run bibtex, I use \"$bibtex\"\n",
        "   To run makeindex, I use \"$makeindex\"\n",
        "   To make a ps file from a dvi file, I use \"$dvips\"\n",
        "   To make a ps file from a dvi file with landscape format, ",
@@ -4019,257 +3892,6 @@ sub view_file_via_temporary {
 
 #************************************************************
 #### Tex-related utilities
-
-#**************************************************
-
-sub check_biber_log {
-    # Check for biber warnings:
-    # Usage: check_biber_log( base_of_biber_run, \@biber_source )
-    # return 0: OK;
-    #        1: biber warnings;
-    #        2: biber errors;
-    #        3: could not open .blg file;
-    #        4: failed to find one or more source files, except for bibfile;
-    #        5: failed to find bib file;
-    #        6: missing file, one of which is control file
-    #       10: only error is missing \citation commands.
-    #       11: Malformed bcf file (normally due to error in pdflatex run)
-    # Side effect: add source files @biber_source
-    my $base = $_[0];
-    my $Pbiber_source = $_[1];
-    my $blg_name = "$base.blg";
-    my $blg_file = new FileHandle;
-    open( $blg_file, "<$blg_name" )
-      or return 3;
-    my $have_warning = 0;
-    my $have_error = 0;
-    my $missing_citations = 0;
-    my $no_citations = 0;
-    my $error_count = 0;            # From my counting of error messages
-    my $warning_count = 0;          # From my counting of warning messages
-    # The next two occur only from biber
-    my $bibers_error_count = 0;     # From biber's counting of errors
-    my $bibers_warning_count = 0;   # From biber's counting of warnings
-    my $not_found_count = 0;
-    my $control_file_missing = 0;
-    my $control_file_malformed = 0;
-    my %remote = ();                # List of extensions of remote files
-    while (<$blg_file>) {
-        if (/> WARN /) { 
-            print "Biber warning: $_"; 
-            $have_warning = 1;
-            $warning_count ++;
-        }
-        elsif (/> (FATAL|ERROR) /) {
-            print "Biber error: $_"; 
-            if ( /> (FATAL|ERROR) - Cannot find file '([^']+)'/    #'
-                 || /> (FATAL|ERROR) - Cannot find '([^']+)'/ ) {  #'
-                $not_found_count++;
-                push @$Pbiber_source, $2;
-            }
-            elsif ( /> (FATAL|ERROR) - Cannot find control file '([^']+)'/ ) {  #'
-                $not_found_count++;
-                $control_file_missing = 1;
-                push @$Pbiber_source, $2;
-            }
-            elsif ( /> ERROR - .*\.bcf is malformed/ ) {
-                #  Special treatment: Malformed .bcf file commonly results from error
-                #  in (pdf)latex run.  This error must be ignored.
-                $control_file_malformed = 1;
-            }
-            else {
-                $have_error = 1;
-                $error_count ++;
-                if ( /> (FATAL|ERROR) - The file '[^']+' does not contain any citations!/ ) { #'
-                    $no_citations++;
-                }
-            }
-        }
-        elsif ( /> INFO - Data source '([^']*)' is a remote BibTeX data source - fetching/
-            ){
-            my $spec = $1;
-            my ( $base, $path, $ext ) = fileparseA( $spec );
-            $remote{$ext} = 1;
-        }
-        elsif ( /> INFO - Found .* '([^']+)'\s*$/
-                || /> INFO - Found '([^']+)'\s*$/
-                || /> INFO - Reading '([^']+)'\s*$/
-                || /> INFO - Processing .* file '([^']+)' .*$/
-            ) {
-            my $file = $1;
-            my ( $base, $path, $ext ) = fileparseA( $file );
-            if ($remote{$ext} && ( $base =~ /^biber_remote_data_source/ ) && 1) {
-                # Ignore the file, which appears to be a temporary local copy
-                # of a remote file. Treating the file as a source file will
-                # be misleading, since it will normally have been deleted by
-                # biber itself.
-            }
-            elsif ( (defined $Pbiber_source) && (-e $file) ) {
-                # Note that biber log file gives full path to file. (No search is
-                # needed to find it.)  The file must have existed when biber was
-                # run.  If it doesn't exist now, a few moments later, it must
-                # have gotten deleted, probably by biber (e.g., because it is a
-                # copy of a remote file).
-                # So I have included a condition above that the file must
-                # exist to be included in the source-file list.
-                push @$Pbiber_source, $file;
-            }
-        }
-        elsif ( /> INFO - WARNINGS: ([\d]+)\s*$/ ) {
-            $bibers_warning_count = $1;
-        }
-        elsif ( /> INFO - ERRORS: ([\d]+)\s*$/ ) {
-            $bibers_error_count = $1;
-        }
-    }
-    close $blg_file;
-    if ($control_file_malformed){return 11;} 
-
-    my @not_found = &find_file_list1( $Pbiber_source, $Pbiber_source,
-                                      '', \@BIBINPUTS );
-    @$Pbiber_source = uniqs( @$Pbiber_source );
-
-    if ( ($#not_found < 0) && ($#$Pbiber_source >= 0) ) {
-        warn "$My_name: Found biber source file(s) [@$Pbiber_source]\n"
-        unless $silent;
-    }
-    elsif ( ($#not_found == 0) && ($not_found[0] =~ /\.bib$/) ) {
-        # Special treatment if sole missing file is bib file
-        # I don't want to treat that as an error
-        warn "$My_name: Biber did't find bib file [$not_found[0]]\n";
-        return 5;
-    }
-    else {
-        warn "$My_name: Failed to find one or more biber source files:\n";
-        foreach (@not_found) { warn "    '$_'\n"; }
-        if ($force_mode) {
-            warn "==== Force_mode is on, so I will continue.  ",
-                 "But there may be problems ===\n";
-        }
-        if ($control_file_missing) {
-            return 6;
-        }
-        return 4;
-    }
-#    print "$My_name: #Biber errors = $error_count, warning messages = $warning_count,\n  ",
-#          "missing citation messages = $missing_citations, no_citations = $no_citations\n";
-    if ( ! $have_error && $no_citations ) {
-        # If the only errors are missing citations, or lack of citations, that should
-        # count as a warning.
-        # HOWEVER: biber doesn't generate a new bbl.  So it is an error condition.
-        return 10;
-    }
-    if ($have_error) {return 2;}
-    if ($have_warning) {return 1;}
-    return 0;
-} #END check_biber_log
-
-#**************************************************
-
-sub run_bibtex {
-    my $return = 999;
-    # Prevent changes we make to environment becoming global:
-    local %ENV = %ENV;
-    my ( $base, $path, $ext ) = fileparseA( $$Psource );
-    if ( $path && $bibtex_fudge ) {
-        # Since (e.g.,) 'bibtex output/main.aux' doesn't find subsidiary .aux
-        #   files, as from \@include{chap.aux}, we change directory to the
-        #   directory of the top-level .aux file to run bibtex.  But we have to
-        #   fix search paths for .bib and .bst, since they may be specified
-        #   relative to the document directory.
-        my $cwd = good_cwd();
-        foreach ( 'BIBINPUTS', 'BSTINPUTS' ) {
-            if ( exists $ENV{$_} ) {
-                $ENV{$_} = $cwd.$search_path_separator.$ENV{$_};
-            }
-            else {
-                $ENV{$_} = $cwd.$search_path_separator;
-            }
-        }
-        pushd( $path );
-        if (!$silent) {
-            print "$My_name: changed directory to '$path'\n",
-                  "Set BIBINPUTS='$ENV{BIBINPUTS}'\n",
-                  "Set BSTINPUTS='$ENV{BSTINPUTS}'\n";
-        }
-        $return = &Run_subst( undef, undef, '', $base.$ext, '', $base );
-        popd();
-        if (!$silent) {
-            print "$My_name: changed directory back to '", cwd(), "'\n";
-        }
-    }
-    else {
-        $return = Run_subst();
-    }
-    return $return;
-}
-
-
-#**************************************************
-
-sub check_bibtex_log {
-    # Check for bibtex warnings:
-    # Usage: check_bibtex_log( base_of_bibtex_run )
-    # return 0: OK, 1: bibtex warnings, 2: bibtex errors, 
-    #        3: could not open .blg file.
-    #       10: only error is missing \citation commands or a missing aux file
-    #           (which would normally be corrected after a later run of 
-    #           (pdf)latex).
-
-    my $base = $_[0];
-    my $blg_name = "$base.blg";
-    my $blg_file = new FileHandle;
-    open( $blg_file, "<$blg_name" )
-      or return 3;
-    my $have_warning = 0;
-    my $have_error = 0;
-    my $missing_citations = 0;
-    my @missing_aux = ();
-    my $error_count = 0;
-    while (<$blg_file>) {
-        if (/^Warning--/) { 
-            #print "Bibtex warning: $_"; 
-            $have_warning = 1;
-        }
-        elsif ( /^I couldn\'t open auxiliary file (.*\.aux)/ ) {
-            push @missing_aux, $1;
-        }
-        elsif ( /^I found no \\citation commands---while reading file/ ) {
-            $missing_citations++;
-        }
-        elsif (/There (were|was) (\d+) error message/) {
-            $error_count = $2;
-            #print "Bibtex error: count=$error_count $_"; 
-            $have_error = 1;
-        }
-    }
-    close $blg_file;
-    my $missing = $missing_citations + $#missing_aux + 1;
-
-    if ( $#missing_aux > -1 ) {
-        # Need to make the missing files.
-        warn "$My_name: One or more aux files is missing for bibtex. I'll try\n",
-             "          to get (pdf)latex to remake them.\n";
-        rdb_for_some( [keys %current_primaries], sub{ $$Pout_of_date = 1; } );
-    }
-    #print "Bibtex errors = $error_count, missing aux files and citations = $missing\n";
-    if ($have_error && ($error_count <= $missing )
-        && ($missing > 0) ) {
-        # If the only error is a missing citation line, that should only
-        # count as a warning.
-        # Also a missing aux file should be innocuous; it will be created on
-        # next run of (pdf)latex.  ?? HAVE I HANDLED THAT CORRECTLY?
-        # But have to deal with the problem that bibtex gives a non-zero 
-        # exit code.  So leave things as they are so that the user gets
-        # a better diagnostic ??????????????????????????
-#        $have_error = 0;
-#        $have_warning = 1;
-        return 10;
-    }
-    if ($have_error) {return 2;}
-    if ($have_warning) {return 1;}
-    return 0;
-} #END check_bibtex_log
 
 #**************************************************
 
@@ -5669,32 +5291,7 @@ LINE:
                     next LINE;
                 }
             }
-            elsif ( $rule =~ /^(makeindex|bibtex|biber)\s*(.*)$/ ) {
-                my $PA_extra_gen = [];
-                my $rule_generic = $1;
-                my $int_cmd = '';
-                if ( ! $source ) {
-                    # If fdb_file was old-style (v. 1)
-                    $source = $2;
-                    my $path = '';
-                    my $ext = '';
-                    ($base, $path, $ext) = fileparseA( $source );
-                    $base = $path.$base;
-                    if ($rule_generic eq 'makeindex') {
-                        $dest = "$base.ind";
-                    }
-                    elsif ($rule_generic eq 'bibtex') {
-                        $dest = "$base.bbl";
-                        $source = "$base.aux";
-                    }
-                    elsif ($rule_generic eq 'biber') {
-                        $dest = "$base.bbl";
-                        $source = "$base.bcf";
-                    }
-                }
                 if ($rule =~ /^makeindex/) { $PA_extra_gen = [ "$base.ilg" ]; }
-                if ($rule =~ /^(bibtex|biber)/) { $PA_extra_gen = [ "$base.blg" ]; }
-                if ($rule =~ /^bibtex/) { $int_cmd = "run_bibtex"; }
                 warn "$My_name: File-database '$in_name': setting rule '$rule'\n"
                    if $diagnostics;
                 my $cmd_type = 'external';
@@ -6205,87 +5802,6 @@ sub rdb_set_latex_deps {
     }
 
     local %processed_aux_files = ();
-  BBL_FILE:
-    foreach my $bbl_file ( uniqs( @bbl_files ) ) {
-        my ($bbl_base, $bbl_path, $bbl_ext) = fileparseA( $bbl_file );
-        $bbl_base = $bbl_path.$bbl_base;
-        my @new_bib_files = ();
-        my @new_aux_files = ();
-        my @new_bst_files = ();
-        my @biber_source = ( "$bbl_base.bcf" );
-        my $bib_program = 'bibtex';
-        if ( test_gen_file( "$bbl_base.bcf" ) ) {
-             $bib_program = 'biber';
-        }
-        my $from_rule = "$bib_program $bbl_base";
-        print "=======  Dealing with '$from_rule'\n" if ($diagnostics);
-        # Don't change to use activation and deactivation here, rather than
-        # creation and removal of rules.  This is because rules are to be
-        # created on the fly here with details corresponding to current. So
-        # activating a previously inactive rule, which is out-of-date, may
-        # cause trouble.
-        if ($bib_program eq 'biber') {
-            check_biber_log( $bbl_base, \@biber_source );
-            # Remove OPPOSITE kind of bbl generation:
-            rdb_remove_rule( "bibtex $bbl_base" );
-        }
-        else {
-            parse_aux( "$bbl_base.aux", \@new_bib_files, \@new_aux_files, \@new_bst_files );
-            # Remove OPPOSITE kind of bbl generation:
-            rdb_remove_rule( "biber $bbl_base" );
-        }
-        if ( ! rdb_rule_exists( $from_rule ) ){
-            print "   ===Creating rule '$from_rule'\n" if ($diagnostics);
-            if ( $bib_program eq 'biber' ) {
-                rdb_create_rule( $from_rule, 'external', $biber, '', 1,
-                                 "$bbl_base.bcf", $bbl_file, $bbl_base, 1, 0, 0, 1, [ "$bbl_base.blg" ]  );
-            }
-            else {
-                rdb_create_rule( $from_rule, 'external', $bibtex, 'run_bibtex', 1,
-                                  "$bbl_base.aux", $bbl_file, $bbl_base, 1, 0, 0, 1, [ "$bbl_base.blg" ]  );
-            }
-        }
-        $created_rules{$bbl_file} = $from_rule;
-        local %old_sources = ();
-        rdb_one_rule( $from_rule, sub { %old_sources = %$PHsource; } );
-        my @new_sources = ( @new_bib_files, @new_aux_files, @new_bst_files );
-        if ( $bib_program eq 'biber' ) {
-            push @new_sources, @biber_source;
-        }
-        foreach my $source ( @new_sources ) {
-            print "  ===Source file '$source' for '$from_rule'\n"
-               if ($diagnostics);
-            rdb_ensure_file( $from_rule, $source );
-            delete $old_sources{$source};
-        }
-        foreach my $source ( @new_aux_files ) {
-            $processed_aux_files{$source} = 1;
-        }
-        if ($diagnostics) {
-            foreach ( keys %old_sources ) {
-                print "Removing no-longer-needed dependent '$_' from rule '$from_rule'\n";
-            }
-        }
-        rdb_remove_files( $from_rule, keys %old_sources );
-        print "  ===Source file '$bbl_file' for '$rule'\n"
-            if ($diagnostics);
-        rdb_ensure_file( $rule, $bbl_file, $from_rule );
-        if ( ! -e $bbl_file ) { 
-            # Failure was non-existence of makable file
-            # Leave failure issue to other rules.
-            $failure = 0;
-        }
-    }
-
-    if ( ($#aux_hooks > -1) && ! exists $processed_aux_files{$aux_main} ) {
-        my @new_bib_files = ();
-        my @new_aux_files = ();
-        my @new_bst_files = ();
-        parse_aux( $aux_main, \@new_bib_files, \@new_aux_files, \@new_bst_files );
-        foreach my $source ( @new_aux_files ) {
-            $processed_aux_files{$source} = 1;
-        }
-    }
 
 NEW_SOURCE:
     foreach my $new_source (keys %dependents) {
@@ -7187,31 +6703,6 @@ sub rdb_make1 {
     if ($failure & ! $force_mode) {return;}
     if ( ! defined $pass{$rule} ) {$pass{$rule} = 0; } 
 
-    # Special fix up for bibtex:
-    my $bibtex_not_run = -1;   # Flags status as to whether this is a
-        # bibtex rule and if it is, whether out-of-date condition is to
-        # be ignored.
-        #  -1 => not a bibtex rule
-        #   0 => no special treatment
-        #   1 => don't run bibtex because of non-existent bibfiles
-        #           (and setting to do this test)
-        #   2 => don't run bibtex because of setting
-    my @missing_bib_files = ();
-    if ( $rule =~ /^(bibtex|biber)/ ) {
-        $bibtex_not_run = 0;
-        if ($bibtex_use == 0) {
-           $bibtex_not_run = 2;
-        }
-        elsif ( ($bibtex_use == 1) || ($bibtex_use == 1.5) ) {
-            foreach ( keys %$PHsource ) {
-                if ( ( /\.bib$/ ) && (! -e $_) ) {
-                    push @missing_bib_files, $_;
-                    $bibtex_not_run = 1;
-                }
-            }
-        }
-    }
-
     if ( ($$Prun_time == 0) && exists($possible_primaries{$rule}) ) {
         push @rules_never_run, $rule;
         $$Pout_of_date = 1;
@@ -7294,67 +6785,6 @@ sub rdb_make1 {
     $runs++;
 
     $pass{$rule}++; 
-    if ($bibtex_not_run > 0) {
-        if ($bibtex_not_run == 1 ) {
-            show_array ("$My_name: I WON'T RUN '$rule' because I don't find the following files:",
-                        @missing_bib_files);
-        }
-        elsif ($bibtex_not_run == 2 ) {
-            warn "$My_name: I AM CONFIGURED/INVOKED NOT TO RUN '$rule'\n"; 
-        }
-        $return = &rdb_dummy_run1;
-    }
-    else {
-        warn_running( "Run number $pass{$rule} of rule '$rule'" );
-        if ($$Pcmd_type eq 'primary' ) { 
-            $return = &rdb_primary_run;
-        }
-        else { $return = &rdb_run1; }
-    }
-    if ($$Pchanged) {
-        $newrule_nofile = 1;
-        $return = 0;
-    }
-    elsif ( $$Pdest && ( !-e $$Pdest ) && (! $failure) ){
-        # If there is a destination to make, but for some reason
-        #    it did not get made, and no other error was reported, 
-        #    then a priori there appears to be an error condition:
-        #    the run failed.   But there are some important cases in
-        #    which this is a wrong diagnosis.
-        if ( ( $$Pcmd_type eq 'cusdep') && $$Psource && (! -e $$Psource) ) {
-            # However, if the rule is a custom dependency, this is not by
-            #  itself an error, if also the source file does not exist.  In 
-            #  that case, we may have the situation that (1) the dest file is no
-            #  longer needed by the tex file, and (2) therefore the user
-            #  has deleted the source and dest files.  After the next
-            #  latex run and the consequent analysis of the log file, the
-            #  cusdep rule will no longer be needed, and will be removed.
-
-            # So in this case, do NOT report an error          
-            $$Pout_of_date = 0;
-        }
-        elsif ($$Pcmd_type eq 'primary' ) { 
-            # For a primary rule, i.e., (pdf)latex, not to produce the 
-            #    expected output file may not be an error condition.  
-            # Diagnostics were handled in parsing the log file.
-            # Special action in main loop in rdb_make
-            $missing_dvi_pdf = $$Pdest;
-        }
-        elsif ($return == -2) {
-           # Missing output file was reported to be NOT an error
-           $$Pout_of_date = 0;
-        }
-        elsif ( ($bibtex_use <= 1.5) && ($bibtex_not_run > 0) ) {
-           # Lack of destination file is not to be treated as an error
-           # for a bibtex rule when latexmk is configured not to treat
-           # this as an error, and the lack of a destination file is the
-           # only error.
-           $$Pout_of_date = 0;
-        }
-        else {
-            $failure = 1;
-        }
-    }
     if ( ($return != 0) && ($return != -2) ) {
         $failure = 1; 
         $$Plast_result = 2;
@@ -7536,114 +6966,6 @@ sub rdb_run1 {
         $$Plast_result = 2;
         $$Plast_message = "Bug or configuration error; incorrect command type";
     }
-    if ( $rule =~ /^biber/ ) {
-        my @biber_source = ( );
-        my $retcode = check_biber_log( $$Pbase, \@biber_source );
-        foreach my $source ( @biber_source ) {
-#           if ( $source =~ /\"/ ) {next; }
-            print "  ===Source file '$source' for '$rule'\n"
-               if ($diagnostics);
-            rdb_ensure_file( $rule, $source );
-        }
-        if ($retcode == 5) {
-        # Special treatment if sole missing file is bib file
-        # I don't want to treat that as an error
-            $return = 0;
-            $$Plast_result = 200;
-            $$Plast_message = "Could not find bib file for '$$Pbase'";
-            push @warnings, "Bib file not found for '$$Pbase'";
-        }
-        elsif ($retcode == 6) {
-           # Missing control file.  Need to remake it (if possible)
-           # Don't treat missing bbl file as error.
-           warn "$My_name: bibtex control file missing.  Since that can\n",
-                "   be recreated, I'll try to do so.\n";
-           $return = -2;
-           rdb_for_some( [keys %current_primaries], sub{ $$Pout_of_date = 1; } );
-        }
-        elsif ($retcode == 4) {
-            $$Plast_result = 2;
-            $$Plast_message = "Could not find all biber source files for '$$Pbase'";
-            push @warnings, "Not all biber source files found for '$$Pbase'";
-        }
-        elsif ($retcode == 3) {
-            $$Plast_result = 2;
-            $$Plast_message = "Could not open biber log file for '$$Pbase'";
-            push @warnings, $$Plast_message;
-        }
-        elsif ($retcode == 2) {
-            $$Plast_message = "Biber errors: See file '$$Pbase.blg'";
-            push @warnings, $$Plast_message;
-        }
-        elsif ($retcode == 1) {
-            push @warnings, "Biber warnings for '$$Pbase'";
-        }
-        elsif ($retcode == 10) {
-            push @warnings, "Biber found no citations for '$$Pbase'";
-            # Biber doesn't generate a bbl file in this situation.
-            $return = -2;
-        }
-        elsif ($retcode == 11) {
-            push @warnings, "Biber: malformed bcf file for '$$Pbase'.  IGNORE";
-            if (!$silent) {
-               warn "$My_name: biber found malformed bcf file for '$$Pbase'.\n",
-                    "  I'll ignore error, and delete any bbl file.\n";
-            }
-            # Malformed bcf file is a downstream consequence, normally,
-            # of an error in (pdf)latex run.  So this is not an error
-            # condition in biber itself.
-            # Current version of biber deletes bbl file.
-            # Older versions (pre-2016) made an incorrect bbl file, which
-            # tended to cause latex errors, and give a self-perpetuating error.
-            # To be safe, ensure the bbl file doesn't exist.
-            unlink $$Pdest;
-            # The missing bbl file is now not an error:
-            $return = -2;
-# ??????? BCF
-# Following is intended to work, but creates infinite loop
-# in malformed bcf file situation under -pvc.
-# since on each check for change in ANY file, pvc finds changed file
-# Need to restrict pvc reruns to case of changed USER files
-#           # To give good properties for (pdf)latex rule, it is best
-#           # to have a valid bbl file that exists:
-#           create_empty_file( $$Pdest );
-#            $return = 0;
-            
-        }
-    }
-    if ( $rule =~ /^bibtex/ ) {
-        my $retcode = check_bibtex_log($$Pbase);
-        if ( ! -e $$Psource ) {
-            $retcode = 10;
-            rdb_for_some( [keys %current_primaries], sub{ $$Pout_of_date = 1; } );
-        }
-        if ($retcode == 3) {
-            $$Plast_result = 2;
-            $$Plast_message = "Could not open bibtex log file for '$$Pbase'";
-            push @warnings, $$Plast_message;
-        }
-        elsif ($retcode == 2) {
-            $$Plast_message = "Bibtex errors: See file '$$Pbase.blg'";
-            $failure = 1;
-            push @warnings, $$Plast_message;
-        }
-        elsif ($retcode == 1) {
-            push @warnings, "Bibtex warnings for '$$Pbase'";
-        }
-        elsif ($retcode == 10) {
-            push @warnings, "Bibtex found no citations for '$$Pbase',\n",
-                            "    or bibtex found a missing aux file\n";
-            if (! -e $$Pdest ) {
-                warn "$My_name: Bibtex did not produce '$$Pdest'.  But that\n",
-                     "     was because of missing files, so I will continue.\n";
-                $return = -2;
-            }
-            else {
-                $return = 0;
-            }
-        }
-    }
-
     $updated = 1;
     if ($$Ptest_kind == 3) { 
         # We are time-criterion first time only.  Now switch to
