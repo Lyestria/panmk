@@ -2,12 +2,14 @@
 import argparse
 import os
 import platform
+import subprocess
 import sys
 
+from collections import deque
 
 # Constants
 PROGRAM_NAME = 'PanMK'
-VERSION = '0.1'
+VERSION = '0.1a'
 
 
 def get_platform():
@@ -40,11 +42,11 @@ def get_cmd_args():
     parser.add_argument('-e', dest='exec', metavar='<code>',
                         help='Execute specified Python code (as part of panmk start-up code)')
 
-    # skip_timestamp_flag = parser.add_mutually_exclusive_group()
-    # skip_timestamp_flag.add_argument('-g', dest='g', action='store_true',
-    #                                  help='process regardless of file timestamps')
-    # skip_timestamp_flag.add_argument('-g-', dest='g', action='store_false', default=False,
-    #                                  help='Turn off -g')
+    skip_timestamp_flag = parser.add_mutually_exclusive_group()
+    skip_timestamp_flag.add_argument('-g', dest='g', action='store_true',
+                                     help='process regardless of file timestamps')
+    skip_timestamp_flag.add_argument('-g-', dest='g', action='store_false', default=False,
+                                     help='Turn off -g')
 
     viewer_flag = parser.add_mutually_exclusive_group()
     viewer_flag.add_argument('--new-viewer', dest='new-viewer', action='store_true',
@@ -61,11 +63,13 @@ def get_cmd_args():
     preview_flag.add_argument('-pvc', dest='action', action='store_const', const='pvc', default='p',
                               help='preview document and continuously update.')
 
-    parser.add_argument(['--rc'], dest='rc', help='Read custom RC file')
+    parser.add_argument('--rc', help='Read custom RC file')
 
-    parser.add_argument(['-v', '--version'], action='version', version='%s %s' % (PROGRAM_NAME, VERSION))
+    parser.add_argument('-v', '--version', action='version', version='%s %s' % (PROGRAM_NAME, VERSION))
 
     parser.add_argument('filename', help='file to compile with pandoc')
+
+    parser.add_argument('args', nargs=argparse.REMAINDER)
 
     return parser.parse_args()
 
@@ -98,10 +102,7 @@ def load_rc(rc, args):
 
     config = read_config(rc)
 
-    for key, value in config:
-        setattr(args, key, value)
-
-    return args
+    args.update(config)
 
 
 def load_default_rc(platform, args):
@@ -111,41 +112,59 @@ def load_default_rc(platform, args):
         sysdrive = os.environ['systemdrive']
 
         path = os.path.join(sysdrive, 'panmk', 'panmkrc')
-        args = load_rc(path, args)
+        load_rc(path, args)
 
         path = os.path.expanduser(os.path.join('~user', '.panmkrc'))
-        args = load_rc(path, args)
+        load_rc(path, args)
 
-    elif platform == 'cygin':
+    else:
         # This won't work if you execute this using the Windows Python binary
-        paths = ['/opt/local/share/panmk/', '/usr/local/share/panmk',
-                 '/usr/local/lib/panmk']
+        paths = ['/opt/local/share/panmk', '/usr/local/share/panmk',
+                 '/usr/local/lib/panmk', '~']
 
+        for path in paths:
+            load_rc(os.path.join(path, '.panmk'), args)
+
+
+def call_pandoc(path, args):
+    proc = subprocess.run(['pandoc', path] + args, capture_output=True)
+    print(proc.stderr)
+    return ''
 
 
 def main():
-    args = get_cmd_args()
+    args = vars(get_cmd_args())
+
+    print(args)
 
     platform = get_platform()
 
     # Execute the user's code
-    if args.exec is not None:
+    if args.get('exec') is not None:
         try:
             exec(args.exec)
         except Exception as e:
             print(e, file=sys.stderr)
 
     # Load the rc file
-    if args.rc:
-        args = load_rc(args.rc, args)
-    elif not args.norc:
-        args = load_default_rc(platform, args)
+    if args.get('rc'):
+        load_rc(args.get('rc'), args)
+    elif not args.get('norc'):
+        load_default_rc(platform, args)
 
-    # There is a possibility that reloading a file is non-trivial
+    # There is a possibility that [re]loading a file is non-trivial
     # *COUGH* acroread *COUGH*
     # So we allow the user to specify a different reload function
-    if args.reload_file:
-        reload_file = eval(args.reload_file)
+    # TODO: Use YAML for .panmk instead?
+    if args.get('load_file'):
+        load_file = eval(args.get('load_file'))
+
+    if args.get('reload_file'):
+        reload_file = eval(args.get('reload_file'))
+
+    # Test with trivial case for now
+    if args.get('action') == 'p':
+        output = call_pandoc(args.get('filename'), args.get('args'))
 
     return 0
 
