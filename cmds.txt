@@ -1,0 +1,49 @@
+   -cd    - Change to directory of source file when processing it
+   -cd-   - Do NOT change to directory of source file when processing it
+   -e <code> - Execute specified Python code (as part of latexmk start-up
+               code)
+   -f     - force continued processing past errors
+   -f-    - turn off forced continuing processing past errors
+   -g     - process regardless of file timestamps
+   -g-    - Turn off -g
+   -h     - print help
+   -help - print help
+   -jobname=STRING - set basename of output file(s) to STRING.
+            (Like --jobname=STRING on command line for many current
+            implementations of latex/pdflatex.)
+   -l     - force landscape mode
+   -l-    - turn off -l
+   -new-viewer    - in -pvc mode, always start a new viewer
+   -new-viewer-   - in -pvc mode, start a new viewer only if needed
+   -norc          - omit automatic reading of system, user and project rc files
+   -output-directory=dir or -outdir=dir
+                  - set name of directory for output files
+   -p     - print document after generating.
+   -pv    - preview document.  (Side effect turn off continuous preview)
+   -pv-   - turn off preview mode
+   -pvc   - preview document and continuously update.  (This also turns
+                on force mode, so errors do not cause latexmk to stop.)
+            (Side effect: turn off ordinary preview mode.)
+   -pvc-  - turn off -pvc
+   -pvctimeout    - timeout in pvc mode after period of inactivity
+   -pvctimeout-   - don't timeout in pvc mode after inactivity
+   -pvctimeoutmins=<time> - set period of inactivity (minutes) for pvc timeout
+   -quiet    - silence progress messages from called programs
+   -r <file> - Read custom RC file
+               (N.B. This file could override options specified earlier
+               on the command line.)
+   -silent   - silence progress messages from called programs
+   -time     - show CPU time used
+   -time-    - don't show CPU time used
+   -v        - display program version
+   -verbose  - display usual progress messages from called programs
+   -version      - display program version
+
+   filename = the root filename of LaTeX document
+
+-p, -pv and -pvc are mutually exclusive
+-h, -c and -C override all other options.
+-pv and -pvc require one and only one filename specified
+All options can be introduced by '-' or '--'.  (E.g., --help or -help.)
+
+All unrecognized options will be passed to pandoc.
