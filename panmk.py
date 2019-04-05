@@ -73,9 +73,7 @@ def get_cmd_args():
 
     parser.add_argument('filename', help='file to compile with pandoc')
 
-    parser.add_argument('args', nargs=argparse.REMAINDER)
-
-    return parser.parse_args()
+    return parser.parse_known_args()
 
 
 def normalize_path(path):
@@ -161,9 +159,10 @@ def get_file_loader(platform):
 
 
 def main():
-    args = vars(get_cmd_args())
 
-    print(args)
+    # Get panmk and pandoc arguements
+    args, pandoc_args = get_cmd_args()
+    args = vars(args)
 
     platform = get_platform()
 
@@ -194,9 +193,9 @@ def main():
 
     # Test with trivial case for now
     if args.get('action') == 'p':
-        output = call_pandoc(args.get('filename'), args['output'], args.get('args'))
+        output = call_pandoc(args.get('filename'), args['output'], pandoc_args)
     elif args.get('action') == 'pv':
-        output = call_pandoc(args.get('filename'), args['output'], args.get('args'))
+        output = call_pandoc(args.get('filename'), args['output'], pandoc_args)
         load_file(output)
 
     return 0
