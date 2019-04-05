@@ -58,6 +58,10 @@ def get_cmd_args():
                         help='omit automatic reading of system, user, and project rc files')
 
     preview_flag = parser.add_mutually_exclusive_group()
+    preview_flag.add_argument('-p', dest='action', action='store_const', const='p', default='p',
+                              help='compile document.')
+    preview_flag.add_argument('-pc', dest='action', action='store_const', const='pc', default='p',
+                              help='continuously compile document.')
     preview_flag.add_argument('-pv', dest='action', action='store_const', const='pv', default='p',
                               help='preview document.')
     preview_flag.add_argument('-pvc', dest='action', action='store_const', const='pvc', default='p',
@@ -71,7 +75,7 @@ def get_cmd_args():
                         help='The name of the output file.'
                              '{filename} will automatically be replaced with the input file\'s base name.')
 
-    parser.add_argument('filename', help='file to compile with pandoc')
+    parser.add_argument('filename', help='the root filename of the document(s) to compile')
 
     return parser.parse_known_args()
 
