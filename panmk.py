@@ -1,11 +1,11 @@
 #!/usr/bin/python3
 import argparse
 import os
-import platform
 import subprocess
 import sys
 
 from collections import deque
+from platform import system as get_system
 
 # Constants
 PROGRAM_NAME = 'PanMK'
@@ -18,10 +18,10 @@ def get_platform():
         Naturally, this will fail miserably if you invoke the Windows version from Cywgin/WSL.
     '''
     platforms = ['windows', 'cygin', 'darwin']
-    _platform = platform.system().lower()
+    platform = get_system().lower()
 
     for plat in platforms:
-        if plat in _platform:
+        if plat in platform:
             return plat
     else:
         # Assume that all other system are posix-like enough that this is fine
@@ -66,6 +66,10 @@ def get_cmd_args():
     parser.add_argument('--rc', help='Read custom RC file')
 
     parser.add_argument('-v', '--version', action='version', version='%s %s' % (PROGRAM_NAME, VERSION))
+
+    parser.add_argument('-o', '--output', required=True,
+                        help='The name of the output file.'
+                             '{filename} will automatically be replaced with the input file\'s base name.')
 
     parser.add_argument('filename', help='file to compile with pandoc')
 
@@ -126,10 +130,34 @@ def load_default_rc(platform, args):
             load_rc(os.path.join(path, '.panmk'), args)
 
 
-def call_pandoc(path, args):
-    proc = subprocess.run(['pandoc', path] + args, capture_output=True)
-    print(proc.stderr)
-    return ''
+def call_pandoc(path, output, args):
+    '''Call pandoc to compile `path`, with arguments `args`'''
+
+    basename = os.path.splitext(os.path.basename(path))[0]
+    output_file = output.format(filename=basename)
+    proc = subprocess.run(['pandoc', path, '-o', output_file] + args, capture_output=True)
+    if proc.stderr:
+        print('%s' % proc.stderr)
+    return output_file
+
+def get_file_loader(platform):
+    '''Returns a function that opens files for viewing on the given platform
+    
+       Since the platform will not change under normal circumstances, we can avoid using a comparison.
+       This should speed up the loading and reloading functions.
+    '''
+
+    if platform == 'windows':
+        cmd = lambda x: ['start', x]
+    elif platform == 'cygin':
+        cmd = lambda x: ['cmd', '/c', 'start', x]
+    elif platform == 'darwin':
+        cmd = lambda x: ['open', x]
+    else:
+        # Please work please work please work
+        cmd = lambda x: ['xdg-open', x]
+
+    return lambda x: subprocess.run(cmd(x))
 
 
 def main():
@@ -158,13 +186,18 @@ def main():
     # TODO: Use YAML for .panmk instead?
     if args.get('load_file'):
         load_file = eval(args.get('load_file'))
+    else:
+        load_file = get_file_loader(platform)
 
     if args.get('reload_file'):
         reload_file = eval(args.get('reload_file'))
 
     # Test with trivial case for now
     if args.get('action') == 'p':
-        output = call_pandoc(args.get('filename'), args.get('args'))
+        output = call_pandoc(args.get('filename'), args['output'], args.get('args'))
+    elif args.get('action') == 'pv':
+        output = call_pandoc(args.get('filename'), args['output'], args.get('args'))
+        load_file(output)
 
     return 0
 
