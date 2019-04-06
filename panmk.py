@@ -2,6 +2,7 @@
 
 import argparse
 import asyncio
+import configparser
 import os
 import subprocess
 import sys
@@ -19,15 +20,17 @@ def get_platform():
 
         Naturally, this will fail miserably if you invoke the Windows version from Cywgin/WSL.
     '''
-    platforms = ['windows', 'cygin', 'darwin']
+
+    # BSD needs its own case because I don't think SIGUSR1 will reload files...
+    platforms = ['windows', 'cygin', 'darwin', 'bsd']
     platform = get_system().lower()
 
     for plat in platforms:
         if plat in platform:
             return plat
     else:
-        # Assume that all other system are posix-like enough that this is fine
-        return 'posix'
+        # Assume that all other system are linux-like enough that this is fine
+        return 'linux'
 
 def get_cmd_args():
     '''Parses the command line arguments and returns them.'''
@@ -90,13 +93,11 @@ def normalize_path(path):
 def read_config(path):
     ''' Reads the config specified by path.'''
 
-    with open(path) as f:
-        props = {line.strip().split('=', 1) for line in f}
+    parser = configparser.ConfigParser()
+    parser.read(path)
+    return {k: dict(v) for k, v in parser.items()}
 
-    return props
-
-
-def load_rc(rc, args):
+def load_rc(rc, conf):
     ''' Loads the rc file `rc` if it exists.
     
         `rc` should be written in an `ini` format.
@@ -110,10 +111,10 @@ def load_rc(rc, args):
 
     config = read_config(rc)
 
-    args.update(config)
+    conf.update(config)
 
 
-def load_default_rc(platform, args):
+def load_default_rc(platform, conf):
     '''Loads the default rc, based on what platform you are own.'''
 
     if platform == 'windows':
@@ -123,7 +124,7 @@ def load_default_rc(platform, args):
         load_rc(path, args)
 
         path = os.path.expanduser(os.path.join('~user', '.panmkrc'))
-        load_rc(path, args)
+        load_rc(path, conf)
 
     else:
         # This won't work if you execute this using the Windows Python binary
@@ -131,7 +132,7 @@ def load_default_rc(platform, args):
                  '/usr/local/lib/panmk', '~']
 
         for path in paths:
-            load_rc(os.path.join(path, '.panmk'), args)
+            load_rc(os.path.join(path, '.panmk'), conf)
 
 
 def call_pandoc(path, output, args):
@@ -160,10 +161,7 @@ def get_loader_cmd(platform):
         cmd = lambda x: ['open', x]
     else:
         # Please work please work please work
-        # cmd = lambda x: ['xdg-open', x]
-
-        # TODO: REMOVE THIS DEBUG CODE
-        cmd = lambda x: ['evince', x]
+        cmd = lambda x: ['xdg-open', x]
 
     return cmd
 
@@ -175,24 +173,32 @@ def get_file_loader(platform):
     return lambda x: subprocess.run(cmd(x))
 
 
-def get_reloadable(path, platform):
+def get_reloadable(path, load_file):
     '''Returns a Popen object so it can be reloaded'''
 
-    return subprocess.Popen(get_loader_cmd(platform)(path))
+    return subprocess.Popen(load_file(path))
 
 
 def get_file_reloader(platform):
     ''' Returns a function that reloads the file for viewing on the given platform.'''
 
-    return (lambda x: x)
+    if platform == 'windows':
+        # give up
+        return lambda x: x
+    elif platform in ['darwin', 'bsd']:
+        # Use SIGINFO on MACOS
+        return lambda x: x.send_signal(29)
+    elif platform == 'linux':
+        # Send SIGUSR1
+        return lambda x: x.send_signal(16)
 
 
-def continuous(platform, args, pandoc_args, reload_file):
+def continuous(platform, args, pandoc_args, load_file, reload_file):
     '''Continuous mode: continually compile the file until ^C is sent.'''
 
     pre = None
     output = call_pandoc(args['filename'], args['output'], pandoc_args)
-    proc = get_reloadable(output, platform)
+    proc = get_reloadable(output, load_file)
     while True:
         try:
             cur = os.stat(args['filename'])
@@ -221,39 +227,63 @@ def main():
         try:
             exec(args.exec)
         except Exception as e:
+            # TODO: use actual logging
             print(e, file=sys.stderr)
 
     # Load the rc file
+    conf = {}
     if args.get('rc'):
-        load_rc(args.get('rc'), args)
+        load_rc(args.get('rc'), conf)
     elif not args.get('norc'):
-        load_default_rc(platform, args)
+        load_default_rc(platform, conf)
+
+    # panmk mostly deals with the million ways to load and reload files
+    # but there is also some config stuff in there we shouldn't overlook
+    args.update(conf.get('args', {}))
+
+    # Get the file's extension
+    ext = os.path.splitext(os.path.basename(args['output']))
+    if len(ext) < 2:
+        # There is no extension, and I have no idea what the hell you are doing
+        ext = None
+    else:
+        # splitext keeps the dot in the extension
+        ext = ext[1][1:]
 
     # There is a possibility that [re]loading a file is non-trivial
     # *COUGH* acroread *COUGH*
-    # So we allow the user to specify a different reload function
-    if args.get('load_file'):
-        load_file = eval(args.get('load_file'))
-    else:
-        load_file = get_file_loader(platform)
+    # So we allow the user to specify a different [re]load function
+    if ext is not None:
+        # The configuration specifically defines how to open these files
+        if conf.get(ext):
+            # This is such a hack
+            try:
+                load_file = eval(conf[ext].get('load_file', 'None')) or get_file_loader(platform)
+            except Exception:
+                load_file = get_file_loader(platform)
+        else:
+            load_file = get_file_loader(platform)
 
     if args['new-viewer']:
         reload_file = load_file
     else:
-        if args.get('reload_file'):
-            reload_file = eval(args.get('reload_file'))
+        if conf.get(ext):
+            # This too, is such a hack
+            try:
+                reload_file = eval(conf[ext].get('reload_file', 'None')) or get_file_reloader(platform)
+            except Exception:
+                load_file = get_file_reloader(platform)
         else:
             reload_file = get_file_reloader(platform)
 
 
-    # Test with trivial case for now
     if args['action'] == 'p':
         output = call_pandoc(args['filename'], args['output'], pandoc_args)
     elif args['action'] == 'pv':
         output = call_pandoc(args['filename'], args['output'], pandoc_args)
         load_file(output)
     elif args['action'] == 'pvc':
-        continuous(platform, args, pandoc_args, reload_file)
+        continuous(platform, args, pandoc_args, load_file, reload_file)
 
     return 0
 
