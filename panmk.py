@@ -181,6 +181,21 @@ def get_reloadable(path, load_file):
 
     return subprocess.Popen(load_file(path))
 
+# Following this are some built-in restart functions
+def do_nothing(proc):
+    ''' A function that ...does nothing.
+
+        Some viewers, like evince, will update for you, and sending SIGHUP or SIGUSR1
+        will actually kill them.
+    '''
+    pass
+
+
+def send_signal(signal):
+    ''' To use from .panmk, call as `send_signal(SIGNAL)`, as this returns a function.'''
+
+    return lambda x: x.send_signal(signal)
+
 
 def hard_restart(proc):
     ''' Sometimes, I just don't want to deal with your shit.
@@ -198,6 +213,11 @@ def hard_restart(proc):
     proc = subprocess.Popen(args)
 
 
+def run_command(command):
+    ''' Some viewers need a specific command to reload the file.'''
+
+    return lambda x: subprocess.run(command)
+
 def get_file_reloader(platform):
     ''' Returns a function that reloads the file for viewing on the given platform.'''
 
@@ -206,10 +226,10 @@ def get_file_reloader(platform):
         return hard_restart
     elif platform in ['darwin', 'bsd']:
         # Use SIGINFO on MACOS + BSD
-        return lambda x: x.send_signal(29)
+        return send_signal(29)
     elif platform in ['linux', 'cygin']:
         # You can either send SIGHUP (1) or SIGUSR1 (10)
-        return lambda x: x.send_signal(1)
+        return send_signal(1)
 
 
 def pre_reload_kill_proc(proc):
@@ -217,7 +237,7 @@ def pre_reload_kill_proc(proc):
     proc.kill()    
 
 def continuous(platform, args, pandoc_args, load_file, pre_reload_file, reload_file):
-    '''Continuous mode: continually compile the file until ^C is sent.'''
+    ''' Continuous mode: continually compile the file until ^C is sent.'''
 
     pre = None
     output = call_pandoc(args['filename'], args['output'], pandoc_args)
@@ -248,6 +268,11 @@ def main():
     args = vars(args)
 
     platform = get_platform()
+
+    # Change directory if requested by the user
+    # Do this before any of the user's code is executed
+    if args.get('cd'):
+        os.chdir(os.path.dirname(args['filename']))
 
     # Execute the user's code
     if args.get('exec') is not None:
