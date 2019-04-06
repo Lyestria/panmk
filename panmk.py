@@ -94,7 +94,7 @@ def normalize_path(path):
 def read_config(path):
     ''' Reads the config specified by path.'''
 
-    parser = configparser.ConfigParser()
+    parser = configparser.ConfigParser(delimiters=('=',), comment_prefixes=('#',))
     parser.read(path)
     return {k: dict(v) for k, v in parser.items()}
 
