@@ -16,7 +16,7 @@ PROGRAM_NAME = 'PanMK'
 VERSION = '0.1a'
 
 # Number of seconds to wait between calling `terminate()` and `kill()`
-DEATH_DELAY = 1
+DEATH_DELAY = 5
 
 def get_platform():
     ''' Guess the platform the user is using.
@@ -68,8 +68,6 @@ def get_cmd_args():
     preview_flag = parser.add_mutually_exclusive_group()
     preview_flag.add_argument('-p', dest='action', action='store_const', const='p', default='p',
                               help='compile document.')
-    preview_flag.add_argument('-pc', dest='action', action='store_const', const='pc', default='p',
-                              help='continuously compile document.')
     preview_flag.add_argument('-pv', dest='action', action='store_const', const='pv', default='p',
                               help='preview document.')
     preview_flag.add_argument('-pvc', dest='action', action='store_const', const='pvc', default='p',
