@@ -9,11 +9,14 @@ import sys
 
 from contextlib import suppress
 from platform import system as get_system
+from time import sleep
 
 # Constants
 PROGRAM_NAME = 'PanMK'
 VERSION = '0.1a'
 
+# Number of seconds to wait between calling `terminate()` and `kill()`
+DEATH_DELAY = 1
 
 def get_platform():
     ''' Guess the platform the user is using.
@@ -179,38 +182,62 @@ def get_reloadable(path, load_file):
     return subprocess.Popen(load_file(path))
 
 
+def hard_restart(proc):
+    ''' Sometimes, I just don't want to deal with your shit.
+        What this means, is that I will just kill the current viewer, and start it again.
+        You can this 'insanity', I can this 'not dealing with your shit'.
+    '''
+
+    # First, get the args we passed
+    args = proc.args
+    # Be nice
+    proc.terminate()
+    proc.wait(timeout=DEATH_DELAY)
+    # Ok you're gonna DIE
+    proc.kill()
+    proc = subprocess.Popen(args)
+
+
 def get_file_reloader(platform):
     ''' Returns a function that reloads the file for viewing on the given platform.'''
 
     if platform == 'windows':
-        # give up
-        return lambda x: x
+        # I hate you
+        return hard_restart
     elif platform in ['darwin', 'bsd']:
-        # Use SIGINFO on MACOS
+        # Use SIGINFO on MACOS + BSD
         return lambda x: x.send_signal(29)
-    elif platform == 'linux':
-        # Send SIGUSR1
-        return lambda x: x.send_signal(16)
+    elif platform in ['linux', 'cygin']:
+        # You can either send SIGHUP (1) or SIGUSR1 (10)
+        return lambda x: x.send_signal(1)
 
 
-def continuous(platform, args, pandoc_args, load_file, reload_file):
+def pre_reload_kill_proc(proc):
+    ''' Deal with the fact that sometimes...your files get locked on Windows.'''
+    proc.kill()    
+
+def continuous(platform, args, pandoc_args, load_file, pre_reload_file, reload_file):
     '''Continuous mode: continually compile the file until ^C is sent.'''
 
     pre = None
     output = call_pandoc(args['filename'], args['output'], pandoc_args)
     proc = get_reloadable(output, load_file)
-    while True:
-        try:
+    try:
+        while True:
+            # TODO: optimize this slightly
             cur = os.stat(args['filename'])
             if cur != pre:
                 pre = cur
                 try:
+                    # Screw you, Adobe Reader
+                    pre_reload_file(proc)
                     call_pandoc(args['filename'], args['output'], pandoc_args)
                     reload_file(proc)
                 except KeyboardInterrupt:
                     pass
-        except KeyboardInterrupt:
-            break
+        sleep(1)
+    except KeyboardInterrupt:
+        pass
 
 
 def main():
@@ -266,15 +293,21 @@ def main():
 
     if args['new-viewer']:
         reload_file = load_file
+        pre_reload_file = pre_reload_kill_proc
     else:
         if conf.get(ext):
             # This too, is such a hack
             try:
                 reload_file = eval(conf[ext].get('reload_file', 'None')) or get_file_reloader(platform)
             except Exception:
-                load_file = get_file_reloader(platform)
+                reload_file = get_file_reloader(platform)
+            try:
+                pre_reload_file = eval(conf[ext].get('pre_reload_file', 'None')) or (lambda x: None)
+            except Exception:
+                pre_reload_file = lambda x: None
         else:
             reload_file = get_file_reloader(platform)
+            pre_reload_file = lambda x: None
 
 
     if args['action'] == 'p':
@@ -283,7 +316,7 @@ def main():
         output = call_pandoc(args['filename'], args['output'], pandoc_args)
         load_file(output)
     elif args['action'] == 'pvc':
-        continuous(platform, args, pandoc_args, load_file, reload_file)
+        continuous(platform, args, pandoc_args, load_file, pre_reload_file, reload_file)
 
     return 0
 
