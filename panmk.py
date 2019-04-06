@@ -160,7 +160,12 @@ def get_loader_cmd(platform):
         cmd = lambda x: ['open', x]
     else:
         # Please work please work please work
-        cmd = lambda x: ['xdg-open', x]
+        # cmd = lambda x: ['xdg-open', x]
+
+        # TODO: REMOVE THIS DEBUG CODE
+        cmd = lambda x: ['evince', x]
+
+    return cmd
 
 
 def get_file_loader(platform):
@@ -190,15 +195,15 @@ def continuous(platform, args, pandoc_args, reload_file):
     proc = get_reloadable(output, platform)
     while True:
         try:
-            cur = os.stat(args.get(filename))
+            cur = os.stat(args['filename'])
             if cur != pre:
                 pre = cur
                 try:
                     call_pandoc(args['filename'], args['output'], pandoc_args)
                     reload_file(proc)
-                except KeyboardInterupt:
+                except KeyboardInterrupt:
                     pass
-        except KeyboardInterupt:
+        except KeyboardInterrupt:
             break
 
 
