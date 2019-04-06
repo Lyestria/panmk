@@ -1,10 +1,12 @@
 #!/usr/bin/python3
+
 import argparse
+import asyncio
 import os
 import subprocess
 import sys
 
-from collections import deque
+from contextlib import suppress
 from platform import system as get_system
 
 # Constants
@@ -51,7 +53,7 @@ def get_cmd_args():
     viewer_flag = parser.add_mutually_exclusive_group()
     viewer_flag.add_argument('--new-viewer', dest='new-viewer', action='store_true',
                              help='in -pvc mode, always start a new viewer')
-    viewer_flag.add_argument('--no-new-viewer', dest='new-viewer', action='store_false',
+    viewer_flag.add_argument('--no-new-viewer', dest='new-viewer', action='store_false', default=False,
                              help='in -pvc mode, start a new viewer only if needed')
 
     parser.add_argument('--norc', dest='norc', action='store_true',
@@ -142,9 +144,10 @@ def call_pandoc(path, output, args):
         print('%s' % proc.stderr)
     return output_file
 
-def get_file_loader(platform):
-    '''Returns a function that opens files for viewing on the given platform
-    
+
+def get_loader_cmd(platform):
+    ''' Returns a lambda that gives the command to view the file on the given platform. 
+
        Since the platform will not change under normal circumstances, we can avoid using a comparison.
        This should speed up the loading and reloading functions.
     '''
@@ -159,10 +162,48 @@ def get_file_loader(platform):
         # Please work please work please work
         cmd = lambda x: ['xdg-open', x]
 
+
+def get_file_loader(platform):
+    '''Returns a function that opens files for viewing on the given platform.'''
+
+    cmd = get_loader_cmd(platform)
     return lambda x: subprocess.run(cmd(x))
 
 
+def get_reloadable(path, platform):
+    '''Returns a Popen object so it can be reloaded'''
+
+    return subprocess.Popen(get_loader_cmd(platform)(path))
+
+
+def get_file_reloader(platform):
+    ''' Returns a function that reloads the file for viewing on the given platform.'''
+
+    return (lambda x: x)
+
+
+def continuous(platform, args, pandoc_args, reload_file):
+    '''Continuous mode: continually compile the file until ^C is sent.'''
+
+    pre = None
+    output = call_pandoc(args['filename'], args['output'], pandoc_args)
+    proc = get_reloadable(output, platform)
+    while True:
+        try:
+            cur = os.stat(args.get(filename))
+            if cur != pre:
+                pre = cur
+                try:
+                    call_pandoc(args['filename'], args['output'], pandoc_args)
+                    reload_file(proc)
+                except KeyboardInterupt:
+                    pass
+        except KeyboardInterupt:
+            break
+
+
 def main():
+    '''Main function. 'nough said.'''
 
     # Get panmk and pandoc arguements
     args, pandoc_args = get_cmd_args()
@@ -186,21 +227,28 @@ def main():
     # There is a possibility that [re]loading a file is non-trivial
     # *COUGH* acroread *COUGH*
     # So we allow the user to specify a different reload function
-    # TODO: Use YAML for .panmk instead?
     if args.get('load_file'):
         load_file = eval(args.get('load_file'))
     else:
         load_file = get_file_loader(platform)
 
-    if args.get('reload_file'):
-        reload_file = eval(args.get('reload_file'))
+    if args['new-viewer']:
+        reload_file = load_file
+    else:
+        if args.get('reload_file'):
+            reload_file = eval(args.get('reload_file'))
+        else:
+            reload_file = get_file_reloader(platform)
+
 
     # Test with trivial case for now
-    if args.get('action') == 'p':
-        output = call_pandoc(args.get('filename'), args['output'], pandoc_args)
-    elif args.get('action') == 'pv':
-        output = call_pandoc(args.get('filename'), args['output'], pandoc_args)
+    if args['action'] == 'p':
+        output = call_pandoc(args['filename'], args['output'], pandoc_args)
+    elif args['action'] == 'pv':
+        output = call_pandoc(args['filename'], args['output'], pandoc_args)
         load_file(output)
+    elif args['action'] == 'pvc':
+        continuous(platform, args, pandoc_args, reload_file)
 
     return 0
 
