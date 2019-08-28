@@ -198,7 +198,7 @@ def send_signal(signal):
 def hard_restart(proc):
     ''' Sometimes, I just don't want to deal with your shit.
         What this means, is that I will just kill the current viewer, and start it again.
-        You can this 'insanity', I can this 'not dealing with your shit'.
+        You call this 'insanity', I call this 'not dealing with your shit'.
     '''
 
     # First, get the args we passed
